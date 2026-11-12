@@ -1,0 +1,6 @@
+<launch>
+  <arg name="config" default="$(find ground_station)/config/sitl.yaml" />
+  <node pkg="ground_station" type="ground_station_node.py" name="ground_station_node" output="screen">
+    <param name="config_file" value="$(arg config)" />
+  </node>
+</launch>

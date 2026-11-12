@@ -1,0 +1,39 @@
+transport: ros
+profile: sitl
+grid:
+  rows: 9
+  columns: 7
+  cell_size_m: 0.5
+  altitude_m: 2.5
+
+ros:
+  namespace: /uav
+  topics:
+    state: /uav/state
+    position: /uav/local_position/odom
+    mission: /uav/mission
+    command: /uav/ground_station_command
+  queue_size: 10
+  heartbeat_timeout_s: 2.0
+
+mavros_control:
+  enabled: true
+  state_topic: /mavros/state
+  arming_service: /mavros/cmd/arming
+  set_mode_service: /mavros/set_mode
+  takeoff_service: /mavros/cmd/takeoff
+  setpoint_topic: /mavros/setpoint_position/local
+  setpoint_rate_hz: 20.0
+  offboard_prestream_count: 100
+  default_takeoff_altitude_m: 2.5
+  min_altitude_m: 2.5
+  max_altitude_m: 20.0
+  service_timeout_s: 10.0
+  state_timeout_s: 5.0
+
+pw_link:
+  enabled: false
+  device: /dev/ttyUSB0
+  baudrate: 57600
+  mode: transparent_serial
+  heartbeat_timeout_ms: 1500
