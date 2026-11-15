@@ -4,9 +4,9 @@ from typing import List, Sequence, Tuple
 
 
 class GridMission:
-    """Grid/keep-out model and deterministic row-wise coverage route."""
+    """Grid/keep-out model and deterministic column-wise coverage route."""
 
-    def __init__(self, rows: int = 9, columns: int = 7):
+    def __init__(self, rows: int = 8, columns: int = 7):
         if rows < 1 or columns < 1:
             raise ValueError("Grid dimensions must be positive")
         self.rows = rows
@@ -29,6 +29,13 @@ class GridMission:
         if not (0 <= row < self.rows and 0 <= column < self.columns):
             raise ValueError("Cell coordinate is outside the configured grid")
         return "{}{}".format(chr(ord("A") + row), column + 1)
+
+    def cell_to_local(self, cell: Tuple[int, int], cell_size: float = 1.0) -> Tuple[float, float]:
+        """Convert a cell center to local coordinates with H7 at the lower-right."""
+        row, column = cell
+        if not (0 <= row < self.rows and 0 <= column < self.columns):
+            raise ValueError("Cell coordinate is outside the configured grid")
+        return (float(self.columns - 1 - column) * cell_size, float(self.rows - 1 - row) * cell_size)
 
     def set_no_fly_cells(self, codes: Sequence[str], require_three: bool = False) -> None:
         normalized = [str(code).strip() for code in codes if str(code).strip()]
@@ -64,9 +71,9 @@ class GridMission:
         }
         route = []
         targets = []
-        for row in range(self.rows):
-            columns = range(self.columns) if row % 2 == 0 else range(self.columns - 1, -1, -1)
-            targets.extend((row, column) for column in columns if (row, column) in available)
+        for column in range(self.columns - 1, -1, -1):
+            rows = range(self.rows - 1, -1, -1) if (self.columns - 1 - column) % 2 == 0 else range(self.rows)
+            targets.extend((row, column) for row in rows if (row, column) in available)
 
         for target in targets:
             if not route:

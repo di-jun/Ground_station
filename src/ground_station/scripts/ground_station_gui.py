@@ -2,12 +2,13 @@
 """Qt ground station GUI for keep-out editing and route planning."""
 
 import json
+import math
 import os
 import sys
 import time
 from pathlib import Path
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
@@ -34,15 +35,39 @@ class GridWidget(QWidget):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        margin = 28
-        cell_w = (self.width() - margin * 2) / self.mission.columns
-        cell_h = (self.height() - margin * 2) / self.mission.rows
+        left_margin = 32
+        top_margin = 28
+        right_margin = 12
+        bottom_margin = 12
+        grid_width = self.width() - left_margin - right_margin
+        grid_height = self.height() - top_margin - bottom_margin
+        cell_w = grid_width / self.mission.columns
+        cell_h = grid_height / self.mission.rows
         route_cells = set(self.mission.route)
+
+        # Keep the coordinate labels outside the cells so the board reads as a
+        # normal 2D grid: columns 1-7 across the top and rows A-H down the side.
+        painter.setPen(QPen(QColor("#30383d"), 1))
+        for column in range(self.mission.columns):
+            x = left_margin + column * cell_w
+            painter.drawText(
+                QRectF(x, 0, cell_w, top_margin),
+                Qt.AlignCenter,
+                str(column + 1),
+            )
+        for row in range(self.mission.rows):
+            y = top_margin + row * cell_h
+            painter.drawText(
+                QRectF(0, y, left_margin, cell_h),
+                Qt.AlignCenter,
+                chr(ord("A") + row),
+            )
+
         painter.setPen(QPen(QColor("#aab2b8"), 1))
         for row in range(self.mission.rows):
             for col in range(self.mission.columns):
-                rect_x = margin + col * cell_w
-                rect_y = margin + row * cell_h
+                rect_x = left_margin + col * cell_w
+                rect_y = top_margin + row * cell_h
                 cell = (row, col)
                 color = QColor("#dce3e7")
                 if cell in route_cells:
@@ -51,14 +76,43 @@ class GridWidget(QWidget):
                     color = QColor("#efb4aa")
                 painter.fillRect(int(rect_x), int(rect_y), int(cell_w), int(cell_h), color)
                 painter.drawRect(int(rect_x), int(rect_y), int(cell_w), int(cell_h))
-                painter.drawText(int(rect_x + 4), int(rect_y + 15), self.mission.format_cell(cell))
         painter.setPen(QPen(QColor("#24734b"), 2))
         for first, second in zip(self.mission.route, self.mission.route[1:]):
-            x1 = margin + (first[1] + 0.5) * cell_w
-            y1 = margin + (first[0] + 0.5) * cell_h
-            x2 = margin + (second[1] + 0.5) * cell_w
-            y2 = margin + (second[0] + 0.5) * cell_h
+            x1 = left_margin + (first[1] + 0.5) * cell_w
+            y1 = top_margin + (first[0] + 0.5) * cell_h
+            x2 = left_margin + (second[1] + 0.5) * cell_w
+            y2 = top_margin + (second[0] + 0.5) * cell_h
             painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+            self._draw_route_arrow(painter, x1, y1, x2, y2, cell_w, cell_h)
+
+    @staticmethod
+    def _draw_route_arrow(painter, x1, y1, x2, y2, cell_w, cell_h):
+        """Draw an arrow for one traversal, including repeated return segments."""
+        dx = x2 - x1
+        dy = y2 - y1
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return
+
+        # Place the head away from the exact midpoint so opposite traversals
+        # on the same edge remain visible as two different directions.
+        head_x = x1 + dx * 0.62
+        head_y = y1 + dy * 0.62
+        arrow_size = min(cell_w, cell_h) * 0.14
+        unit_x = dx / length
+        unit_y = dy / length
+        wing_x = -unit_x * arrow_size
+        wing_y = -unit_y * arrow_size
+        side_x = -unit_y * arrow_size * 0.55
+        side_y = unit_x * arrow_size * 0.55
+        painter.drawLine(
+            QPointF(head_x, head_y),
+            QPointF(head_x + wing_x + side_x, head_y + wing_y + side_y),
+        )
+        painter.drawLine(
+            QPointF(head_x, head_y),
+            QPointF(head_x + wing_x - side_x, head_y + wing_y - side_y),
+        )
 
 
 class GroundStationWindow(QMainWindow):
@@ -101,7 +155,7 @@ class GroundStationWindow(QMainWindow):
         side.addWidget(self.task_status)
         self.route_info = QLabel("航点：0")
         side.addWidget(self.route_info)
-        start_button = QPushButton("发送任务准备命令")
+        start_button = QPushButton("发送航线任务")
         start_button.clicked.connect(lambda: self.send_command("prepare_mission"))
         side.addWidget(start_button)
         if self.flight_controls_enabled:
@@ -128,7 +182,7 @@ class GroundStationWindow(QMainWindow):
             altitude_layout = QHBoxLayout()
             altitude_layout.addWidget(QLabel("起飞高度 (m)"))
             self.takeoff_altitude = QDoubleSpinBox()
-            self.takeoff_altitude.setRange(float(flight_control.get("min_altitude_m", 0.5)), float(flight_control.get("max_altitude_m", 20.0)))
+            self.takeoff_altitude.setRange(float(flight_control.get("min_altitude_m", 1.5)), float(flight_control.get("max_altitude_m", 20.0)))
             self.takeoff_altitude.setDecimals(1)
             self.takeoff_altitude.setSingleStep(0.5)
             self.takeoff_altitude.setValue(float(config.get("grid", {}).get("altitude_m", 2.0)))
@@ -214,7 +268,12 @@ class GroundStationWindow(QMainWindow):
         if payload is None:
             payload = {}
         if command == "prepare_mission":
-            payload["route"] = [self.mission.format_cell(point) for point in self.mission.route]
+            altitude = self.takeoff_altitude.value() if self.flight_controls_enabled else self.config["grid"].get("altitude_m", 1.5)
+            payload["route"] = [
+                {"x": x, "y": y, "z": altitude}
+                for x, y in (self.mission.cell_to_local(point) for point in self.mission.route)
+            ]
+            payload["cell_size_m"] = 1.0
         self.command_publisher.publish(String(data=json.dumps({"command": command, "payload": payload})))
 
     def _wait_for_command_subscriber(self):

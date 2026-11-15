@@ -14,6 +14,21 @@ except ImportError:
 
 
 class GridMissionTest(unittest.TestCase):
+    def test_route_starts_at_h7_and_ends_at_a1(self):
+        mission = GridMission(8, 7)
+        route = mission.generate_route()
+        self.assertEqual(mission.parse_cell("H7"), route[0])
+        self.assertEqual(mission.parse_cell("A1"), route[-1])
+        self.assertEqual(56, len(set(route)))
+        for first, second in zip(route, route[1:]):
+            self.assertEqual(1, abs(first[0] - second[0]) + abs(first[1] - second[1]))
+
+    def test_cell_centers_use_h7_as_origin(self):
+        mission = GridMission(8, 7)
+        self.assertEqual((0.0, 0.0), mission.cell_to_local(mission.parse_cell("H7")))
+        self.assertEqual((0.0, 1.0), mission.cell_to_local(mission.parse_cell("G7")))
+        self.assertEqual((1.0, 0.0), mission.cell_to_local(mission.parse_cell("H6")))
+
     def test_route_covers_all_non_restricted_cells(self):
         mission = GridMission(9, 7)
         mission.set_no_fly_cells(["C2", "C3", "C4", "F6"])
@@ -50,7 +65,9 @@ class GridMissionTest(unittest.TestCase):
 
     def test_cell_round_trip(self):
         mission = GridMission()
-        self.assertEqual("I7", mission.format_cell(mission.parse_cell("i7")))
+        self.assertEqual("H7", mission.format_cell(mission.parse_cell("h7")))
+        with self.assertRaises(ValueError):
+            mission.parse_cell("i7")
 
 
 @unittest.skipIf(SitlFlightController is None, "flight controller script is not on PYTHONPATH")
@@ -61,7 +78,7 @@ class SitlFlightControllerTest(unittest.TestCase):
         self.rospy.is_shutdown.return_value = False
         self.config = {
             "mavros_control": {
-                "min_altitude_m": 2.5,
+                "min_altitude_m": 1.5,
                 "max_altitude_m": 20.0,
                 "state_timeout_s": 0.1,
             },
@@ -105,6 +122,33 @@ class SitlFlightControllerTest(unittest.TestCase):
         self.controller.arm_service.return_value = SimpleNamespace(success=False)
         self.controller._command_callback(SimpleNamespace(data='{"command":"takeoff","payload":{"altitude_m":3.0}}'))
         self.controller.takeoff_service.assert_not_called()
+
+    def test_map_coordinates_are_converted_to_mavros_world_coordinates(self):
+        self.assertEqual((-1.0, 0.0, 2.5), self.controller._map_to_mavros_position((1.0, 0.0, 2.5)))
+        self.assertEqual((0.0, 1.0, 2.5), self.controller._map_to_mavros_position((0.0, 1.0, 2.5)))
+
+    def test_setpoint_orientation_keeps_heading_toward_positive_y(self):
+        pose = SimpleNamespace(pose=SimpleNamespace(orientation=SimpleNamespace(x=None, y=None, z=None, w=None)))
+        self.controller._setpoint_orientation(pose)
+        self.assertAlmostEqual(0.0, pose.pose.orientation.x)
+        self.assertAlmostEqual(0.0, pose.pose.orientation.y)
+        self.assertAlmostEqual(2 ** -0.5, pose.pose.orientation.z)
+        self.assertAlmostEqual(2 ** -0.5, pose.pose.orientation.w)
+
+    def test_final_waypoint_requests_auto_land_once(self):
+        self.controller.route = [(0.0, 0.0, 2.5)]
+        self.controller.position = (0.0, 0.0, 2.5)
+        self.controller._advance_waypoint_if_reached()
+        self.controller._advance_waypoint_if_reached()
+        self.controller.mode_service.assert_called_once_with(base_mode=0, custom_mode="AUTO.LAND")
+        self.assertTrue(self.controller.landing_requested.is_set())
+
+    def test_intermediate_waypoint_does_not_request_auto_land(self):
+        self.controller.route = [(0.0, 0.0, 2.5), (1.0, 0.0, 2.5)]
+        self.controller.position = (0.0, 0.0, 2.5)
+        self.controller._advance_waypoint_if_reached()
+        self.controller.mode_service.assert_not_called()
+        self.assertEqual(1, self.controller.route_index)
 
 
 if __name__ == "__main__":

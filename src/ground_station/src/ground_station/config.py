@@ -11,6 +11,6 @@ def load_config(path: str) -> dict:
     config.setdefault("grid", {})
     config.setdefault("ros", {})
     config["ros"].setdefault("topics", {})
-    config["grid"].setdefault("rows", 9)
+    config["grid"].setdefault("rows", 8)
     config["grid"].setdefault("columns", 7)
     return config

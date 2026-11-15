@@ -1,7 +1,7 @@
 transport: ros
 profile: sitl
 grid:
-  rows: 9
+  rows: 8
   columns: 7
   cell_size_m: 0.5
   altitude_m: 2.5
@@ -24,10 +24,13 @@ mavros_control:
   takeoff_service: /mavros/cmd/takeoff
   setpoint_topic: /mavros/setpoint_position/local
   setpoint_rate_hz: 20.0
+  heading_yaw_rad: 1.57079632679
+  auto_land_on_mission_complete: true
   offboard_prestream_count: 100
   default_takeoff_altitude_m: 2.5
-  min_altitude_m: 2.5
+  min_altitude_m: 1.5
   max_altitude_m: 20.0
+  waypoint_tolerance_m: 0.2
   service_timeout_s: 10.0
   state_timeout_s: 5.0
 
