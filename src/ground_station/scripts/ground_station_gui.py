@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from PyQt5.QtCore import QPointF, QRectF, Qt
+from PyQt5.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import QApplication, QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
@@ -26,10 +26,84 @@ except ImportError:
 
 
 class GridWidget(QWidget):
-    def __init__(self, mission):
+    LONG_PRESS_MS = 600
+    LONG_PRESS_MOVE_TOLERANCE = 12
+
+    def __init__(self, mission, long_press_callback=None):
         super().__init__()
         self.mission = mission
+        self.long_press_callback = long_press_callback
+        self._press_position = None
+        self._long_press_timer = QTimer(self)
+        self._long_press_timer.setSingleShot(True)
+        self._long_press_timer.timeout.connect(self._handle_long_press)
+        self.setAttribute(Qt.WA_AcceptTouchEvents, True)
         self.setMinimumSize(420, 360)
+
+    def _cell_at_position(self, position):
+        left_margin = 32
+        top_margin = 28
+        right_margin = 12
+        bottom_margin = 12
+        grid_width = self.width() - left_margin - right_margin
+        grid_height = self.height() - top_margin - bottom_margin
+        if position.x() < left_margin or position.x() >= self.width() - right_margin:
+            return None
+        if position.y() < top_margin or position.y() >= self.height() - bottom_margin:
+            return None
+        column = int((position.x() - left_margin) / (grid_width / self.mission.columns))
+        row = int((position.y() - top_margin) / (grid_height / self.mission.rows))
+        if 0 <= row < self.mission.rows and 0 <= column < self.mission.columns:
+            return row, column
+        return None
+
+    def _start_long_press(self, position):
+        self._long_press_timer.stop()
+        self._press_position = position
+        self._long_press_timer.start(self.LONG_PRESS_MS)
+
+    def _cancel_long_press(self):
+        self._long_press_timer.stop()
+        self._press_position = None
+
+    def _update_long_press_position(self, position):
+        if self._press_position is not None and (position - self._press_position).manhattanLength() > self.LONG_PRESS_MOVE_TOLERANCE:
+            self._cancel_long_press()
+
+    def _handle_long_press(self):
+        if self._press_position is None:
+            return
+        cell = self._cell_at_position(self._press_position)
+        if cell is not None and self.long_press_callback is not None:
+            self.long_press_callback(cell)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._start_long_press(event.pos())
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        self._update_long_press_position(event.pos())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._cancel_long_press()
+        super().mouseReleaseEvent(event)
+
+    def event(self, event):
+        if event.type() == QEvent.TouchBegin:
+            self._start_long_press(event.touchPoints()[0].pos())
+            event.accept()
+            return True
+        if event.type() == QEvent.TouchUpdate:
+            self._update_long_press_position(event.touchPoints()[0].pos())
+            event.accept()
+            return True
+        if event.type() in (QEvent.TouchEnd, QEvent.TouchCancel):
+            self._cancel_long_press()
+            event.accept()
+            return True
+        return super().event(event)
 
     def paintEvent(self, event):
         del event
@@ -147,7 +221,7 @@ class GroundStationWindow(QMainWindow):
         layout.addLayout(header)
 
         map_layout = QHBoxLayout()
-        self.grid_widget = GridWidget(self.mission)
+        self.grid_widget = GridWidget(self.mission, self.add_no_fly_cell)
         map_layout.addWidget(self.grid_widget, 3)
         side = QVBoxLayout()
         side.addWidget(QLabel("任务控制"))
@@ -235,6 +309,17 @@ class GroundStationWindow(QMainWindow):
         except ValueError as error:
             QMessageBox.warning(self, "禁飞区无效", str(error))
             return False
+
+    def add_no_fly_cell(self, cell):
+        code = self.mission.format_cell(cell)
+        self.mission.update_no_fly_cells([code])
+        self.no_fly_edit.setText(",".join(
+            self.mission.format_cell(item) for item in sorted(self.mission.no_fly_cells)
+        ))
+        self.mission.route = []
+        self.grid_widget.update()
+        self.task_status.setText("已添加禁飞区 {}，请重新生成航线".format(code))
+        self.route_info.setText("航点：0")
 
     def clear_no_fly_cells(self):
         self.mission.no_fly_cells = set()
