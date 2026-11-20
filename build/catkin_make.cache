@@ -1,2 +1,0 @@
-ground_station
--DCATKIN_DEVEL_PREFIX=/home/cai/Ground_station/devel -DCMAKE_INSTALL_PREFIX=/home/cai/Ground_station/install -G Unix Makefiles

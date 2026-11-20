@@ -1,8 +1,0 @@
-prefix=/home/cai/Ground_station/install
-
-Name: ground_station
-Description: Description of ground_station
-Version: 0.1.0
-Cflags: 
-Libs: -L${prefix}/lib 
-Requires: rospy std_msgs nav_msgs geometry_msgs mavros_msgs
